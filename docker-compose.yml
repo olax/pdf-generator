@@ -1,0 +1,55 @@
+services:
+  pdf-service:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - BROWSER_POOL_SIZE=3
+      - MAX_CONCURRENT_TASKS=10
+      - MAX_PAGES_PER_BROWSER=200
+      - LOG_LEVEL=INFO
+      - MAX_HTML_SIZE=5000000
+      - MAX_CSS_SIZE=500000
+      - MAX_JS_SIZE=100000
+      - USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
+    volumes:
+      - pdf-output:/tmp/pdf-output
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # --- Масштабування (опціонально) ---
+  # Розкоментуй для кількох воркерів за nginx
+  #
+  # pdf-worker-2:
+  #   build: .
+  #   environment:
+  #     - BROWSER_POOL_SIZE=3
+  #     - MAX_CONCURRENT_TASKS=10
+  #   volumes:
+  #     - pdf-output:/tmp/pdf-output
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 2G
+  #
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - pdf-service
+  #     - pdf-worker-2
+
+volumes:
+  pdf-output:

@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Service — Control Panel</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #0a0a0b;
+  --bg-secondary: #111113;
+  --bg-tertiary: #18181b;
+  --bg-elevated: #1e1e22;
+  --border: #2a2a2e;
+  --border-hover: #3a3a40;
+  --text-primary: #e4e4e7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #636369;
+  --accent: #f97316;
+  --accent-dim: #c2410c;
+  --accent-glow: rgba(249, 115, 22, 0.15);
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #eab308;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --radius: 6px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ─── Header ─── */
+.header {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 700; font-size: 14px;
+  color: #000;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.header h1 span { color: var(--text-muted); font-weight: 400; }
+
+.health-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.health-badge:hover { border-color: var(--border-hover); }
+.health-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s;
+}
+.health-dot.ok { background: var(--success); box-shadow: 0 0 8px rgba(34,197,94,0.4); }
+.health-dot.err { background: var(--error); box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+
+/* ─── Layout ─── */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px;
+}
+
+/* ─── Tabs ─── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  padding: 3px;
+  border: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.tab:hover { color: var(--text-secondary); }
+
+.tab.active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 0.2s ease; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ─── Form Grid ─── */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.form-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.form-section.full { grid-column: 1 / -1; }
+
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title::before {
+  content: '';
+  width: 3px; height: 12px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* ─── Form Controls ─── */
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+input[type="text"], input[type="number"], input[type="url"],
+select, textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+textarea.tall { min-height: 200px; }
+
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+
+.inline-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox-field label {
+  margin: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ─── Buttons ─── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+}
+.btn-primary:hover { background: #fb923c; transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: wait; transform: none; }
+
+.btn-secondary {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--border-hover); color: var(--text-primary); }
+
+/* ─── Response Panel ─── */
+.response-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 20px;
+  overflow: hidden;
+}
+
+.response-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.response-header .section-title { margin-bottom: 0; }
+
+.response-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: flex;
+  gap: 16px;
+}
+
+.response-meta span { color: var(--text-muted); }
+.response-meta .val { color: var(--text-secondary); }
+.response-meta .ok { color: var(--success); }
+.response-meta .err { color: var(--error); }
+
+.response-body {
+  padding: 16px 20px;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.response-body pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.response-body .placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
+  padding: 40px;
+}
+
+/* ─── Progress ─── */
+.progress-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* ─── Batch Results Table ─── */
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.batch-table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.batch-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.batch-table tr:last-child td { border-bottom: none; }
+
+.status-ok { color: var(--success); }
+.status-err { color: var(--error); }
+
+.dl-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.dl-link:hover { text-decoration: underline; }
+
+/* ─── Spinner ─── */
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* ─── Toast ─── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  z-index: 1000;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: var(--error); }
+
+/* ─── Config bar ─── */
+.config-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.config-bar label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.config-bar input {
+  max-width: 340px;
+}
+
+@media (max-width: 768px) {
+  .container { padding: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .header { padding: 12px 16px; }
+  .header h1 span { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">PDF</div>
+    <h1>pdf-service <span>// control panel</span></h1>
+  </div>
+  <div class="health-badge" onclick="checkHealth()" title="Click to refresh">
+    <div class="health-dot" id="healthDot"></div>
+    <span id="healthText">checking…</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- API Base URL -->
+  <div class="config-bar">
+    <label>API_BASE</label>
+    <input type="url" id="apiBase" style="font-size:13px">
+    <button class="btn btn-secondary" onclick="checkHealth()" style="padding:6px 14px;font-size:12px">Test</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="url">⇢ From URL</button>
+    <button class="tab" data-tab="html">⟨/⟩ From HTML</button>
+    <button class="tab" data-tab="batch">☰ Batch</button>
+    <button class="tab" data-tab="json">{ } Raw JSON</button>
+  </div>
+
+  <!-- ═══════════════════ TAB: FROM URL ═══════════════════ -->
+  <div class="tab-panel active" id="tab-url">
+    <div class="form-grid">
+      <!-- URL + основне -->
+      <div class="form-section full">
+        <div class="section-title">Target</div>
+        <div class="field">
+          <label>URL</label>
+          <input type="url" id="url-target" placeholder="https://example.com/page">
+        </div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Wait Until</label>
+            <select id="url-waitUntil">
+              <option value="networkidle">networkidle</option>
+              <option value="load">load</option>
+              <option value="domcontentloaded">domcontentloaded</option>
+              <option value="commit">commit</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Timeout (sec)</label>
+            <input type="number" id="url-timeout" value="30" min="5" max="120">
+          </div>
+          <div class="field">
+            <label>Emulate Media</label>
+            <select id="url-emulateMedia">
+              <option value="screen">screen</option>
+              <option value="print">print</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Wait Selector</label>
+            <input type="text" id="url-waitSelector" placeholder=".content-loaded">
+          </div>
+        </div>
+      </div>
+
+      <!-- CSS injection -->
+      <div class="form-section">
+        <div class="section-title">Inject CSS</div>
+        <div class="field">
+          <textarea id="url-css" placeholder=".ads, .cookie-banner, .popup {
+  display: none !important;
+}
+
+body {
+  font-family: Arial, sans-serif !important;
+}"></textarea>
+        </div>
+      </div>
+
+      <!-- JS injection -->
+      <div class="form-section">
+        <div class="section-title">Inject JS</div>
+        <div class="field">
+          <textarea id="url-js" placeholder='document.querySelectorAll(".modal").forEach(e => e.remove());
+window.scrollTo(0, document.body.scrollHeight);'></textarea>
+        </div>
+      </div>
+
+      <!-- Block rules -->
+      <div class="form-section">
+        <div class="section-title">Block Requests</div>
+        <div class="field">
+          <textarea id="url-block" placeholder="**/google-analytics.com/**
+**/doubleclick.net/**
+**/facebook.com/tr/**
+**/*.gif"></textarea>
+          <label style="margin-top:4px;color:var(--text-muted);font-size:11px">One glob pattern per line</label>
+        </div>
+      </div>
+
+      <!-- PDF options -->
+      <div class="form-section">
+        <div class="section-title">PDF Options</div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Format</label>
+            <select id="url-format">
+              <option value="A4">A4</option>
+              <option value="A3">A3</option>
+              <option value="A5">A5</option>
+              <option value="Letter">Letter</option>
+              <option value="Legal">Legal</option>
+              <option value="Tabloid">Tabloid</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Scale</label>
+            <input type="number" id="url-scale" value="1.0" min="0.1" max="2.0" step="0.1">
+          </div>
+          <div class="field">
+            <label>Viewport W</label>
+            <input type="number" id="url-vpw" value="1280" min="320" max="3840">
+          </div>
+          <div class="field">
+            <label>Viewport H</label>
+            <input type="number" id="url-vph" value="720" min="240" max="2160">
+          </div>
+        </div>
+        <div class="inline-fields" style="margin-top:10px">
+          <div class="field"><label>Margin Top</label><input type="text" id="url-mt" value="10mm"></div>
+          <div class="field"><label>Right</label><input type="text" id="url-mr" value="10mm"></div>
+          <div class="field"><label>Bottom</label><input type="text" id="url-mb" value="10mm"></div>
+          <div class="field"><label>Left</label><input type="text" id="url-ml" value="10mm"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:20px;flex-wrap:wrap">
+          <div class="checkbox-field">
+            <input type="checkbox" id="url-landscape">
+            <label for="url-landscape">Landscape</label>
+          </div>
+          <div class="checkbox-field">
+            <input type="checkbox" id="url-printBg" checked>
+            <label for="url-printBg">Print Background</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Images -->
+      <div class="form-section full">
+        <div class="section-title">Image Injection</div>
+        <div class="field">
+          <textarea id="url-images" placeholder='[
+  {"selector": "#logo", "src": "https://my-cdn.com/logo.png", "width": "200px"},
+  {"selector": ".watermark", "src": "data:image/png;base64,iVBOR..."}
+]'></textarea>
+          <label style="margin-top:4px;color:var(--text-muted);font-size:11px">JSON array of {selector, src, width?, height?}</label>
+        </div>
+      </div>
+
+      <!-- Extra headers / cookies -->
+      <div class="form-section">
+        <div class="section-title">HTTP Headers</div>
+        <div class="field">
+          <label>User-Agent</label>
+          <input type="text" id="url-ua" placeholder="Default: Chrome 131 (leave empty for server default)">
+        </div>
+        <div class="field">
+          <label>Extra Headers (JSON)</label>
+          <textarea id="url-headers" placeholder='{"Accept-Language": "uk-UA", "Authorization": "Bearer xxx"}'></textarea>
+          <label style="margin-top:4px;color:var(--text-muted);font-size:11px">JSON object</label>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Cookies</div>
+        <div class="field">
+          <textarea id="url-cookies" placeholder='[{"name": "session", "value": "abc123", "domain": "example.com", "path": "/"}]'></textarea>
+          <label style="margin-top:4px;color:var(--text-muted);font-size:11px">JSON array</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="url-submit" onclick="submitURL()">
+        ▶ Generate PDF
+      </button>
+      <button class="btn btn-secondary" onclick="showPayload('url')">Preview JSON</button>
+    </div>
+
+    <div class="response-panel" id="url-response" style="display:none"></div>
+  </div>
+
+  <!-- ═══════════════════ TAB: FROM HTML ═══════════════════ -->
+  <div class="tab-panel" id="tab-html">
+    <div class="form-grid">
+      <div class="form-section full">
+        <div class="section-title">HTML Content</div>
+        <div class="field">
+          <textarea id="html-content" class="tall" placeholder='<!DOCTYPE html>
+<html>
+<head><style>body { font-family: sans-serif; padding: 40px; }</style></head>
+<body>
+  <h1>Invoice #1234</h1>
+  <p>Total: $500.00</p>
+</body>
+</html>'></textarea>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Inject CSS</div>
+        <textarea id="html-css" placeholder="h1 { color: #2563eb; }"></textarea>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Inject JS</div>
+        <textarea id="html-js" placeholder="document.title = 'Generated Report';"></textarea>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">PDF Options</div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Format</label>
+            <select id="html-format">
+              <option value="A4">A4</option>
+              <option value="A3">A3</option>
+              <option value="Letter">Letter</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Scale</label>
+            <input type="number" id="html-scale" value="1.0" step="0.1">
+          </div>
+        </div>
+        <div class="inline-fields" style="margin-top:10px">
+          <div class="field"><label>Margin Top</label><input type="text" id="html-mt" value="15mm"></div>
+          <div class="field"><label>Right</label><input type="text" id="html-mr" value="10mm"></div>
+          <div class="field"><label>Bottom</label><input type="text" id="html-mb" value="15mm"></div>
+          <div class="field"><label>Left</label><input type="text" id="html-ml" value="10mm"></div>
+        </div>
+        <div class="checkbox-field" style="margin-top:10px">
+          <input type="checkbox" id="html-landscape">
+          <label for="html-landscape">Landscape</label>
+        </div>
+        <div class="checkbox-field">
+          <input type="checkbox" id="html-printBg" checked>
+          <label for="html-printBg">Print Background</label>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Settings</div>
+        <div class="field">
+          <label>Base URL (for relative links)</label>
+          <input type="url" id="html-baseUrl" placeholder="https://example.com">
+        </div>
+        <div class="field">
+          <label>Timeout (sec)</label>
+          <input type="number" id="html-timeout" value="30">
+        </div>
+        <div class="field">
+          <label>User-Agent</label>
+          <input type="text" id="html-ua" placeholder="Default: Chrome 131">
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="html-submit" onclick="submitHTML()">
+        ▶ Generate PDF
+      </button>
+      <button class="btn btn-secondary" onclick="showPayload('html')">Preview JSON</button>
+    </div>
+
+    <div class="response-panel" id="html-response" style="display:none"></div>
+  </div>
+
+  <!-- ═══════════════════ TAB: BATCH ═══════════════════ -->
+  <div class="tab-panel" id="tab-batch">
+    <div class="form-grid">
+      <div class="form-section full">
+        <div class="section-title">Batch URLs</div>
+        <div class="field">
+          <textarea id="batch-urls" class="tall" placeholder="https://example.com/page1
+https://example.com/page2
+https://example.com/page3
+https://news.ycombinator.com
+https://github.com"></textarea>
+          <label style="margin-top:4px;color:var(--text-muted);font-size:11px">One URL per line (max 100)</label>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Batch Settings</div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Concurrent</label>
+            <input type="number" id="batch-concurrent" value="5" min="1" max="20">
+          </div>
+          <div class="field">
+            <label>Timeout per URL</label>
+            <input type="number" id="batch-timeout" value="30" min="5" max="120">
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <label>User-Agent</label>
+          <input type="text" id="batch-ua" placeholder="Default: Chrome 131">
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-title">Apply to All</div>
+        <div class="field">
+          <label>CSS Injection</label>
+          <textarea id="batch-css" placeholder=".ads { display: none; }"></textarea>
+        </div>
+        <div class="field">
+          <label>JS Injection</label>
+          <textarea id="batch-js" placeholder=""></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="batch-submit" onclick="submitBatch()">
+        ▶ Start Batch
+      </button>
+    </div>
+
+    <div class="response-panel" id="batch-response" style="display:none"></div>
+  </div>
+
+  <!-- ═══════════════════ TAB: RAW JSON ═══════════════════ -->
+  <div class="tab-panel" id="tab-json">
+    <div class="form-grid">
+      <div class="form-section" style="grid-column:1/-1">
+        <div class="section-title">Endpoint</div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Method</label>
+            <select id="json-method">
+              <option value="POST">POST</option>
+              <option value="GET">GET</option>
+            </select>
+          </div>
+          <div class="field" style="grid-column: span 3">
+            <label>Path</label>
+            <input type="text" id="json-path" value="/api/pdf/from-url">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section full">
+        <div class="section-title">Request Body (JSON)</div>
+        <textarea id="json-body" class="tall" placeholder='{"url": "https://example.com"}'></textarea>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="json-submit" onclick="submitRaw()">
+        ▶ Send Request
+      </button>
+    </div>
+
+    <div class="response-panel" id="json-response" style="display:none"></div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Tabs ───
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+  });
+});
+
+// ─── Helpers ───
+const $ = id => document.getElementById(id);
+const api = () => $('apiBase').value.replace(/\/+$/, '');
+
+function toast(msg, type = '') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function parseJSON(val) {
+  if (!val || !val.trim()) return undefined;
+  try { return JSON.parse(val); } catch(e) { toast(`JSON parse error: ${e.message}`, 'error'); return null; }
+}
+
+function parseLines(val) {
+  if (!val || !val.trim()) return [];
+  return val.split('\n').map(l => l.trim()).filter(Boolean);
+}
+
+function setLoading(btnId, loading) {
+  const btn = $(btnId);
+  if (loading) {
+    btn.disabled = true;
+    btn._orig = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Processing…';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = btn._orig || '▶ Generate PDF';
+  }
+}
+
+function renderResponsePanel(panelId, { status, statusText, duration, contentType, size, body, pdfBlob, filename }) {
+  const panel = $(panelId);
+  panel.style.display = 'block';
+
+  const isOk = status >= 200 && status < 300;
+  const isPdf = contentType && contentType.includes('pdf');
+
+  let meta = `<span>Status: <span class="${isOk ? 'ok' : 'err'}">${status} ${statusText}</span></span>`;
+  if (duration) meta += `<span>Time: <span class="val">${duration}ms</span></span>`;
+  if (size) meta += `<span>Size: <span class="val">${formatBytes(size)}</span></span>`;
+
+  let bodyHtml;
+  if (isPdf && pdfBlob) {
+    const url = URL.createObjectURL(pdfBlob);
+    bodyHtml = `
+      <div style="text-align:center;padding:20px">
+        <p style="color:var(--success);font-family:var(--font-mono);font-size:14px;margin-bottom:16px">
+          ✓ PDF generated successfully (${formatBytes(size)})
+        </p>
+        <a href="${url}" download="${filename || 'document.pdf'}" class="btn btn-primary" style="display:inline-flex;text-decoration:none">
+          ↓ Download PDF
+        </a>
+        <a href="${url}" target="_blank" class="btn btn-secondary" style="display:inline-flex;text-decoration:none;margin-left:8px">
+          Open in new tab
+        </a>
+      </div>`;
+  } else {
+    let formatted = body;
+    try { formatted = JSON.stringify(JSON.parse(body), null, 2); } catch {}
+    bodyHtml = `<pre>${escapeHtml(formatted)}</pre>`;
+  }
+
+  panel.innerHTML = `
+    <div class="response-header">
+      <div class="section-title">Response</div>
+      <div class="response-meta">${meta}</div>
+    </div>
+    <div class="response-body">${bodyHtml}</div>`;
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Health Check ───
+async function checkHealth() {
+  try {
+    const r = await fetch(`${api()}/api/health`);
+    const d = await r.json();
+    $('healthDot').className = 'health-dot ok';
+    const served = d.browsers?.pages_served?.reduce((a,b) => a+b, 0) || 0;
+    $('healthText').textContent = `ok — ${d.browsers?.active || '?'} browsers, ${served} served`;
+  } catch(e) {
+    $('healthDot').className = 'health-dot err';
+    $('healthText').textContent = 'offline';
+  }
+}
+
+// ─── Build Payloads ───
+function buildURLPayload() {
+  const payload = { url: $('url-target').value };
+  if (!payload.url) { toast('URL is required', 'error'); return null; }
+
+  const css = $('url-css').value.trim();
+  const js = $('url-js').value.trim();
+  if (css) payload.inject_css = css;
+  if (js) payload.inject_js = js;
+
+  const images = parseJSON($('url-images').value);
+  if (images === null) return null;
+  if (images) payload.images = images;
+
+  const blockLines = parseLines($('url-block').value);
+  if (blockLines.length) payload.block_requests = blockLines.map(p => ({ pattern: p }));
+
+  const headers = parseJSON($('url-headers').value);
+  if (headers === null) return null;
+  if (headers) payload.extra_http_headers = headers;
+
+  const cookies = parseJSON($('url-cookies').value);
+  if (cookies === null) return null;
+  if (cookies) payload.cookies = cookies;
+
+  payload.pdf_options = {
+    format: $('url-format').value,
+    landscape: $('url-landscape').checked,
+    print_background: $('url-printBg').checked,
+    scale: parseFloat($('url-scale').value) || 1.0,
+    margin: { top: $('url-mt').value, right: $('url-mr').value, bottom: $('url-mb').value, left: $('url-ml').value },
+  };
+
+  payload.wait_until = $('url-waitUntil').value;
+  payload.timeout = parseInt($('url-timeout').value) || 30;
+  payload.viewport_width = parseInt($('url-vpw').value) || 1280;
+  payload.viewport_height = parseInt($('url-vph').value) || 720;
+
+  const emulate = $('url-emulateMedia').value;
+  if (emulate) payload.emulate_media = emulate;
+
+  const waitSel = $('url-waitSelector').value.trim();
+  if (waitSel) payload.wait_for = { selector: waitSel, timeout: 5000 };
+
+  const ua = $('url-ua').value.trim();
+  if (ua) payload.user_agent = ua;
+
+  return payload;
+}
+
+function buildHTMLPayload() {
+  const payload = { html: $('html-content').value };
+  if (!payload.html) { toast('HTML content is required', 'error'); return null; }
+
+  const css = $('html-css').value.trim();
+  const js = $('html-js').value.trim();
+  if (css) payload.inject_css = css;
+  if (js) payload.inject_js = js;
+
+  const baseUrl = $('html-baseUrl').value.trim();
+  if (baseUrl) payload.base_url = baseUrl;
+
+  payload.timeout = parseInt($('html-timeout').value) || 30;
+  payload.pdf_options = {
+    format: $('html-format').value,
+    landscape: $('html-landscape').checked,
+    print_background: $('html-printBg').checked,
+    scale: parseFloat($('html-scale').value) || 1.0,
+    margin: { top: $('html-mt').value, right: $('html-mr').value, bottom: $('html-mb').value, left: $('html-ml').value },
+  };
+
+  const ua = $('html-ua').value.trim();
+  if (ua) payload.user_agent = ua;
+
+  return payload;
+}
+
+// ─── Submit: URL ───
+async function submitURL() {
+  const payload = buildURLPayload();
+  if (!payload) return;
+
+  setLoading('url-submit', true);
+  const t0 = performance.now();
+
+  try {
+    const r = await fetch(`${api()}/api/pdf/from-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const duration = Math.round(performance.now() - t0);
+    const ct = r.headers.get('content-type') || '';
+
+    if (ct.includes('pdf')) {
+      const blob = await r.blob();
+      renderResponsePanel('url-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: blob.size, pdfBlob: blob,
+        filename: extractFilename(r),
+      });
+      toast('PDF generated!', 'success');
+    } else {
+      const text = await r.text();
+      renderResponsePanel('url-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: text.length, body: text,
+      });
+      if (!r.ok) toast(`Error: ${r.status}`, 'error');
+    }
+  } catch(e) {
+    renderResponsePanel('url-response', {
+      status: 0, statusText: 'Network Error', body: e.message,
+    });
+    toast('Connection failed', 'error');
+  } finally {
+    setLoading('url-submit', false);
+  }
+}
+
+// ─── Submit: HTML ───
+async function submitHTML() {
+  const payload = buildHTMLPayload();
+  if (!payload) return;
+
+  setLoading('html-submit', true);
+  const t0 = performance.now();
+
+  try {
+    const r = await fetch(`${api()}/api/pdf/from-html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const duration = Math.round(performance.now() - t0);
+    const ct = r.headers.get('content-type') || '';
+
+    if (ct.includes('pdf')) {
+      const blob = await r.blob();
+      renderResponsePanel('html-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: blob.size, pdfBlob: blob, filename: 'document.pdf',
+      });
+      toast('PDF generated!', 'success');
+    } else {
+      const text = await r.text();
+      renderResponsePanel('html-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: text.length, body: text,
+      });
+    }
+  } catch(e) {
+    renderResponsePanel('html-response', { status: 0, statusText: 'Network Error', body: e.message });
+    toast('Connection failed', 'error');
+  } finally {
+    setLoading('html-submit', false);
+  }
+}
+
+// ─── Submit: Batch ───
+async function submitBatch() {
+  const urls = parseLines($('batch-urls').value);
+  if (!urls.length) { toast('Add at least one URL', 'error'); return; }
+
+  const css = $('batch-css').value.trim() || undefined;
+  const js = $('batch-js').value.trim() || undefined;
+  const timeout = parseInt($('batch-timeout').value) || 30;
+  const ua = $('batch-ua').value.trim() || undefined;
+
+  const payload = {
+    items: urls.map(url => ({ url, inject_css: css, inject_js: js, timeout, user_agent: ua })),
+    concurrent: parseInt($('batch-concurrent').value) || 5,
+  };
+
+  setLoading('batch-submit', true);
+  const panel = $('batch-response');
+  panel.style.display = 'block';
+
+  try {
+    const r = await fetch(`${api()}/api/pdf/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const task = await r.json();
+    if (!r.ok) { toast(`Error: ${task.detail || r.status}`, 'error'); return; }
+
+    toast(`Batch started: ${task.task_id.slice(0,8)}…`, 'success');
+
+    // Polling
+    const poll = async () => {
+      while (true) {
+        await new Promise(ok => setTimeout(ok, 1500));
+        try {
+          const sr = await fetch(`${api()}/api/pdf/batch/${task.task_id}`);
+          const status = await sr.json();
+
+          const pct = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
+
+          if (status.status === 'done' || status.status === 'error') {
+            renderBatchResults(panel, status);
+            toast(`Batch complete: ${status.results?.filter(r=>r.status==='ok').length}/${status.total} OK`, 'success');
+            return;
+          }
+
+          panel.innerHTML = `
+            <div class="response-header">
+              <div class="section-title">Batch Progress</div>
+              <div class="response-meta">
+                <span>Status: <span class="val">${status.status}</span></span>
+                <span>Progress: <span class="val">${status.progress}/${status.total}</span></span>
+              </div>
+            </div>
+            <div class="response-body">
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+              <p style="text-align:center;color:var(--text-muted);margin-top:12px;font-family:var(--font-mono);font-size:12px">
+                ${pct}% — processing…
+              </p>
+            </div>`;
+        } catch(e) { /* retry */ }
+      }
+    };
+
+    await poll();
+  } catch(e) {
+    panel.innerHTML = `<div class="response-body"><pre>${escapeHtml(e.message)}</pre></div>`;
+    toast('Connection failed', 'error');
+  } finally {
+    setLoading('batch-submit', false);
+  }
+}
+
+function renderBatchResults(panel, status) {
+  const taskId = status.task_id;
+  let rows = '';
+  for (const r of (status.results || [])) {
+    const isOk = r.status === 'ok';
+    rows += `<tr>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</td>
+      <td class="${isOk ? 'status-ok' : 'status-err'}">${r.status}</td>
+      <td>${r.duration_ms}ms</td>
+      <td>${isOk
+        ? `<a href="${api()}/api/pdf/batch/${taskId}/file/${r.file_id}" target="_blank" class="dl-link">↓ Download</a>`
+        : `<span style="color:var(--error);font-size:11px">${escapeHtml(r.error||'')}</span>`
+      }</td>
+    </tr>`;
+  }
+
+  const okCount = status.results?.filter(r => r.status === 'ok').length || 0;
+
+  panel.innerHTML = `
+    <div class="response-header">
+      <div class="section-title">Batch Results</div>
+      <div class="response-meta">
+        <span>Total: <span class="val">${status.total}</span></span>
+        <span>OK: <span class="ok">${okCount}</span></span>
+        <span>Failed: <span class="${status.total - okCount > 0 ? 'err' : 'val'}">${status.total - okCount}</span></span>
+      </div>
+    </div>
+    <div class="response-body" style="max-height:500px">
+      <table class="batch-table">
+        <thead><tr><th>URL</th><th>Status</th><th>Time</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ─── Submit: Raw JSON ───
+async function submitRaw() {
+  const method = $('json-method').value;
+  const path = $('json-path').value;
+  const bodyText = $('json-body').value.trim();
+
+  setLoading('json-submit', true);
+  const t0 = performance.now();
+
+  try {
+    const opts = { method, headers: {} };
+    if (method === 'POST' && bodyText) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = bodyText;
+    }
+
+    const r = await fetch(`${api()}${path}`, opts);
+    const duration = Math.round(performance.now() - t0);
+    const ct = r.headers.get('content-type') || '';
+
+    if (ct.includes('pdf')) {
+      const blob = await r.blob();
+      renderResponsePanel('json-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: blob.size, pdfBlob: blob, filename: 'document.pdf',
+      });
+    } else {
+      const text = await r.text();
+      renderResponsePanel('json-response', {
+        status: r.status, statusText: r.statusText, duration,
+        contentType: ct, size: text.length, body: text,
+      });
+    }
+  } catch(e) {
+    renderResponsePanel('json-response', { status: 0, statusText: 'Network Error', body: e.message });
+    toast('Connection failed', 'error');
+  } finally {
+    setLoading('json-submit', false);
+  }
+}
+
+// ─── Preview JSON payload ───
+function showPayload(type) {
+  let payload;
+  if (type === 'url') payload = buildURLPayload();
+  else if (type === 'html') payload = buildHTMLPayload();
+  if (!payload) return;
+
+  // Switch to JSON tab and prefill
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="json"]').classList.add('active');
+  $('tab-json').classList.add('active');
+
+  $('json-method').value = 'POST';
+  $('json-path').value = type === 'url' ? '/api/pdf/from-url' : '/api/pdf/from-html';
+  $('json-body').value = JSON.stringify(payload, null, 2);
+
+  toast('Payload copied to Raw JSON tab', 'success');
+}
+
+function extractFilename(resp) {
+  const cd = resp.headers.get('content-disposition') || '';
+  const match = cd.match(/filename="?([^";\s]+)"?/);
+  return match ? match[1] : 'document.pdf';
+}
+
+// ─── Init ───
+$('apiBase').value = window.location.origin;
+checkHealth();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
