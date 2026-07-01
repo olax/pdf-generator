@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal, Optional
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import Response, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.browser_pool import BrowserPool
 from app.pdf_generator import PDFGenerator
+from app.cache import PDFCache
+from app.auth import require_api_key
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -57,14 +59,36 @@ DEFAULT_USER_AGENT = (
 )
 USER_AGENT = os.getenv("USER_AGENT", DEFAULT_USER_AGENT)
 
+# CORS origins (comma-separated). Default "*" keeps the local web UI working;
+# set to your own origin(s) in production.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+
 # ---------------------------------------------------------------------------
-# URL validation (SSRF protection)
+# URL validation (SSRF protection + optional host allowlist)
 # ---------------------------------------------------------------------------
 BLOCKED_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
+# Optional allowlist: when set (comma-separated), only these hosts may be
+# rendered. Entries starting with "." are suffix matches, e.g. ".bayonne.fr"
+# matches bayonne.fr and any subdomain. Empty = allow any public host.
+ALLOWED_HOSTS = [h.strip().lower() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+
+
+def _host_allowed(hostname: str) -> bool:
+    if not ALLOWED_HOSTS:
+        return True
+    h = hostname.lower()
+    for pat in ALLOWED_HOSTS:
+        if pat.startswith("."):
+            if h == pat[1:] or h.endswith(pat):
+                return True
+        elif h == pat:
+            return True
+    return False
+
 
 def _validate_safe_url(url: str) -> str:
-    """Block SSRF: only http(s), no private IPs, no cloud metadata."""
+    """Block SSRF: only http(s), no private IPs, no cloud metadata; enforce allowlist."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Only http/https URLs allowed, got {parsed.scheme!r}")
@@ -73,6 +97,8 @@ def _validate_safe_url(url: str) -> str:
         raise ValueError("URL must contain a hostname")
     if hostname in BLOCKED_HOSTS:
         raise ValueError("Access to metadata endpoints is blocked")
+    if not _host_allowed(hostname):
+        raise ValueError(f"Host {hostname!r} is not in the allowed hosts list")
     # Resolve hostname to IP and check for private ranges
     try:
         for info in socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM):
@@ -172,6 +198,7 @@ class PDFFromURLRequest(_BodySizeMixin, BaseModel):
     extra_http_headers: Optional[dict[str, str]] = Field(None, description="Extra HTTP headers")
     cookies: Optional[list[CookieParam]] = Field(None, description="Cookies to set before navigation")
     user_agent: Optional[str] = Field(None, description="Custom User-Agent (overrides env USER_AGENT)")
+    no_cache: bool = Field(default=False, description="Bypass the PDF output cache (force a fresh render)")
 
     @field_validator("url")
     @classmethod
@@ -191,6 +218,7 @@ class PDFFromHTMLRequest(_BodySizeMixin, BaseModel):
     viewport_height: int = Field(default=720, ge=240, le=2160)
     base_url: Optional[str] = Field(None, description="Base URL for relative resources in HTML")
     user_agent: Optional[str] = Field(None, description="Custom User-Agent (overrides env USER_AGENT)")
+    no_cache: bool = Field(default=False, description="Bypass the PDF output cache (force a fresh render)")
 
     @field_validator("html")
     @classmethod
@@ -253,18 +281,20 @@ class TaskStatus(BaseModel):
 browser_pool: BrowserPool
 pdf_generator: PDFGenerator
 task_semaphore: asyncio.Semaphore
+pdf_cache: PDFCache
 tasks_store: dict[str, TaskStatus] = {}
 _task_timestamps: dict[str, float] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global browser_pool, pdf_generator, task_semaphore
+    global browser_pool, pdf_generator, task_semaphore, pdf_cache
     logger.info(f"Starting browser pool (size={POOL_SIZE})...")
     browser_pool = BrowserPool(pool_size=POOL_SIZE)
     await browser_pool.start()
     pdf_generator = PDFGenerator(browser_pool)
     task_semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    pdf_cache = PDFCache()
     cleanup_task = asyncio.create_task(_periodic_cleanup())
     logger.info("PDF Service ready.")
     yield
@@ -280,10 +310,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — дозволяємо запити з веб-інтерфейсу
+# CORS — configurable; default "*" keeps the local web UI working
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -305,6 +335,7 @@ async def health():
         "status": "ok",
         "browsers": pool_status,
         "active_tasks": len([t for t in tasks_store.values() if t.status == "processing"]),
+        "cache": pdf_cache.stats(),
     }
 
 
@@ -319,9 +350,28 @@ async def favicon():
     return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
-@app.post("/api/pdf/from-url")
+@app.post("/api/pdf/from-url", dependencies=[Depends(require_api_key)])
 async def pdf_from_url(req: PDFFromURLRequest):
     """Generate PDF from a URL with optional CSS/JS/image injection."""
+    filename = _url_to_filename(req.url)
+
+    # Cache lookup happens BEFORE the concurrency semaphore, so cache hits are
+    # served instantly and are not throttled by MAX_CONCURRENT_TASKS.
+    cache_key = None
+    if pdf_cache.enabled and not req.no_cache:
+        cache_key = pdf_cache.key(_fingerprint_url(req))
+        cached = await pdf_cache.get(cache_key)
+        if cached is not None:
+            logger.info(f"PDF cache HIT for {req.url} ({len(cached)} bytes)")
+            return Response(
+                content=cached,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "X-Cache": "HIT",
+                },
+            )
+
     async with task_semaphore:
         try:
             t0 = time.monotonic()
@@ -329,13 +379,16 @@ async def pdf_from_url(req: PDFFromURLRequest):
             duration = int((time.monotonic() - t0) * 1000)
             logger.info(f"PDF generated from {req.url} in {duration}ms ({len(pdf_bytes)} bytes)")
 
-            filename = _url_to_filename(req.url)
+            if cache_key is not None:
+                await pdf_cache.set(cache_key, pdf_bytes)
+
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
                 headers={
                     "Content-Disposition": f'attachment; filename="{filename}"',
                     "X-Generation-Time-Ms": str(duration),
+                    "X-Cache": "MISS" if cache_key is not None else "BYPASS",
                 },
             )
         except (asyncio.TimeoutError, TimeoutError):
@@ -345,9 +398,24 @@ async def pdf_from_url(req: PDFFromURLRequest):
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/pdf/from-html")
+@app.post("/api/pdf/from-html", dependencies=[Depends(require_api_key)])
 async def pdf_from_html(req: PDFFromHTMLRequest):
     """Generate PDF from raw HTML with optional CSS/JS/image injection."""
+    cache_key = None
+    if pdf_cache.enabled and not req.no_cache:
+        cache_key = pdf_cache.key(_fingerprint_html(req))
+        cached = await pdf_cache.get(cache_key)
+        if cached is not None:
+            logger.info(f"PDF cache HIT for HTML ({len(cached)} bytes)")
+            return Response(
+                content=cached,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": 'attachment; filename="document.pdf"',
+                    "X-Cache": "HIT",
+                },
+            )
+
     async with task_semaphore:
         try:
             t0 = time.monotonic()
@@ -355,12 +423,16 @@ async def pdf_from_html(req: PDFFromHTMLRequest):
             duration = int((time.monotonic() - t0) * 1000)
             logger.info(f"PDF generated from HTML in {duration}ms ({len(pdf_bytes)} bytes)")
 
+            if cache_key is not None:
+                await pdf_cache.set(cache_key, pdf_bytes)
+
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
                 headers={
                     "Content-Disposition": 'attachment; filename="document.pdf"',
                     "X-Generation-Time-Ms": str(duration),
+                    "X-Cache": "MISS" if cache_key is not None else "BYPASS",
                 },
             )
         except (asyncio.TimeoutError, TimeoutError):
@@ -370,7 +442,7 @@ async def pdf_from_html(req: PDFFromHTMLRequest):
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/pdf/batch", response_model=TaskStatus)
+@app.post("/api/pdf/batch", response_model=TaskStatus, dependencies=[Depends(require_api_key)])
 async def pdf_batch(req: BatchRequest, background_tasks: BackgroundTasks):
     """Submit a batch of URLs for PDF generation. Returns a task ID for polling."""
     task_id = str(uuid.uuid4())
@@ -385,7 +457,7 @@ async def pdf_batch(req: BatchRequest, background_tasks: BackgroundTasks):
     return task
 
 
-@app.get("/api/pdf/batch/{task_id}", response_model=TaskStatus)
+@app.get("/api/pdf/batch/{task_id}", response_model=TaskStatus, dependencies=[Depends(require_api_key)])
 async def batch_status(task_id: str):
     """Check the status of a batch task."""
     task = tasks_store.get(task_id)
@@ -394,7 +466,7 @@ async def batch_status(task_id: str):
     return task
 
 
-@app.get("/api/pdf/batch/{task_id}/file/{file_id}")
+@app.get("/api/pdf/batch/{task_id}/file/{file_id}", dependencies=[Depends(require_api_key)])
 async def batch_download(task_id: str, file_id: str):
     """Download a single PDF from a completed batch."""
     # Validate file_id is a UUID (prevents path traversal)
@@ -438,42 +510,54 @@ async def _process_batch(task_id: str, req: BatchRequest):
     try:
         async def process_one(item: BatchURLItem) -> BatchResultItem:
             async with batch_sem:
-                async with task_semaphore:
-                    t0 = time.monotonic()
-                    try:
-                        url_req = PDFFromURLRequest(
-                            url=item.url,
-                            inject_css=item.inject_css,
-                            inject_js=item.inject_js,
-                            images=item.images,
-                            pdf_options=item.pdf_options,
-                            wait_until=item.wait_until,
-                            timeout=item.timeout,
-                            user_agent=item.user_agent,
-                        )
-                        pdf_bytes = await pdf_generator.from_url(url_req)
-                        file_id = str(uuid.uuid4())
-                        filepath = OUTPUT_DIR / f"{file_id}.pdf"
-                        await asyncio.to_thread(filepath.write_bytes, pdf_bytes)
-                        duration = int((time.monotonic() - t0) * 1000)
+                t0 = time.monotonic()
+                try:
+                    url_req = PDFFromURLRequest(
+                        url=item.url,
+                        inject_css=item.inject_css,
+                        inject_js=item.inject_js,
+                        images=item.images,
+                        pdf_options=item.pdf_options,
+                        wait_until=item.wait_until,
+                        timeout=item.timeout,
+                        user_agent=item.user_agent,
+                    )
 
-                        return BatchResultItem(
-                            url=item.url,
-                            status="ok",
-                            filename=item.filename or _url_to_filename(item.url),
-                            file_id=file_id,
-                            duration_ms=duration,
-                        )
-                    except Exception as e:
-                        duration = int((time.monotonic() - t0) * 1000)
-                        return BatchResultItem(
-                            url=item.url,
-                            status="error",
-                            error=str(e),
-                            duration_ms=duration,
-                        )
-                    finally:
-                        task.progress += 1
+                    cache_key = None
+                    pdf_bytes = None
+                    if pdf_cache.enabled:
+                        cache_key = pdf_cache.key(_fingerprint_url(url_req))
+                        pdf_bytes = await pdf_cache.get(cache_key)
+
+                    if pdf_bytes is None:
+                        # only a real render consumes the global concurrency slot
+                        async with task_semaphore:
+                            pdf_bytes = await pdf_generator.from_url(url_req)
+                        if cache_key is not None:
+                            await pdf_cache.set(cache_key, pdf_bytes)
+
+                    file_id = str(uuid.uuid4())
+                    filepath = OUTPUT_DIR / f"{file_id}.pdf"
+                    await asyncio.to_thread(filepath.write_bytes, pdf_bytes)
+                    duration = int((time.monotonic() - t0) * 1000)
+
+                    return BatchResultItem(
+                        url=item.url,
+                        status="ok",
+                        filename=item.filename or _url_to_filename(item.url),
+                        file_id=file_id,
+                        duration_ms=duration,
+                    )
+                except Exception as e:
+                    duration = int((time.monotonic() - t0) * 1000)
+                    return BatchResultItem(
+                        url=item.url,
+                        status="error",
+                        error=str(e),
+                        duration_ms=duration,
+                    )
+                finally:
+                    task.progress += 1
 
         results = await asyncio.gather(*[process_one(item) for item in req.items])
 
@@ -514,10 +598,14 @@ async def _cleanup_old_tasks():
 
 
 async def _periodic_cleanup():
-    """Periodically clean up old tasks and files."""
+    """Periodically clean up old tasks/files and expired cache entries."""
     while True:
         await asyncio.sleep(300)  # every 5 minutes
         await _cleanup_old_tasks()
+        try:
+            await pdf_cache.sweep_expired()
+        except Exception:
+            logger.exception("cache sweep failed")
 
 
 # ---------------------------------------------------------------------------
@@ -532,3 +620,21 @@ def _url_to_filename(url: str) -> str:
     if path_slug:
         slug += f"_{path_slug}"
     return f"{slug}_{h}.pdf"
+
+
+def _fingerprint_url(req: "PDFFromURLRequest") -> dict:
+    """Render-affecting fields for cache keying (excludes timeout/no_cache)."""
+    d = req.model_dump(mode="json")
+    d.pop("timeout", None)
+    d.pop("no_cache", None)
+    d["_kind"] = "url"
+    return d
+
+
+def _fingerprint_html(req: "PDFFromHTMLRequest") -> dict:
+    """Render-affecting fields for cache keying (excludes timeout/no_cache)."""
+    d = req.model_dump(mode="json")
+    d.pop("timeout", None)
+    d.pop("no_cache", None)
+    d["_kind"] = "html"
+    return d
