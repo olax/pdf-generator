@@ -22,12 +22,12 @@ RUN playwright install chromium
 # Copy app (including static files)
 COPY app/ ./app/
 
-# Output directory
-RUN mkdir -p /tmp/pdf-output
+# Output + cache directories
+RUN mkdir -p /tmp/pdf-output /var/cache/pdf
 
 # Non-root user
 RUN useradd -m -s /bin/bash pdfuser && \
-    chown -R pdfuser:pdfuser /app /tmp/pdf-output /opt/playwright
+    chown -R pdfuser:pdfuser /app /tmp/pdf-output /var/cache/pdf /opt/playwright
 USER pdfuser
 
 # Environment defaults
@@ -40,6 +40,12 @@ ENV MAX_HTML_SIZE=5000000
 ENV MAX_CSS_SIZE=500000
 ENV MAX_JS_SIZE=100000
 ENV USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# Output cache (biggest cost saver) + security defaults
+ENV CACHE_ENABLED=true
+ENV CACHE_DIR=/var/cache/pdf
+ENV CACHE_TTL_SECONDS=86400
+ENV CACHE_MAX_BYTES=2000000000
+# PDF_API_KEYS / ALLOWED_HOSTS / CORS_ORIGINS: set at runtime (compose/.env)
 
 EXPOSE 8000
 

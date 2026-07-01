@@ -12,8 +12,18 @@ services:
       - MAX_CSS_SIZE=500000
       - MAX_JS_SIZE=100000
       - USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36
+      # --- output cache (biggest cost saver: identical requests are served from disk) ---
+      - CACHE_ENABLED=true
+      - CACHE_DIR=/var/cache/pdf
+      - CACHE_TTL_SECONDS=86400
+      - CACHE_MAX_BYTES=2000000000
+      # --- security: API key(s) (set via shell/.env) + host allowlist + CORS ---
+      - PDF_API_KEYS=${PDF_API_KEYS:-}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
     volumes:
       - pdf-output:/tmp/pdf-output
+      - pdf-cache:/var/cache/pdf
     deploy:
       resources:
         limits:
@@ -53,3 +63,4 @@ services:
 
 volumes:
   pdf-output:
+  pdf-cache:

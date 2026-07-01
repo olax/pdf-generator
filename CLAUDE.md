@@ -50,6 +50,19 @@ Three Python modules, no sub-packages:
 | `MAX_CSS_SIZE` | `500000` | Max CSS injection size (bytes) |
 | `MAX_JS_SIZE` | `100000` | Max JS injection size (bytes) |
 | `USER_AGENT` | Chrome 131 UA | Default browser User-Agent (overridable per request) |
+| `CACHE_ENABLED` | `true` | Enable filesystem PDF output cache |
+| `CACHE_DIR` | `/var/cache/pdf` | Cache directory |
+| `CACHE_TTL_SECONDS` | `86400` | Cache entry TTL (0 = never expire) |
+| `CACHE_MAX_BYTES` | `2000000000` | Cache size cap (LRU eviction) |
+| `PDF_API_KEYS` / `PDF_API_KEY` | *(empty)* | API key(s) for `/api/pdf/*`; empty = auth disabled |
+| `ALLOWED_HOSTS` | *(empty)* | Comma-separated render allowlist; `.` prefix = suffix match; empty = any public host |
+| `CORS_ORIGINS` | `*` | Comma-separated CORS origins |
+
+### Caching, auth & SSRF (`app/cache.py`, `app/auth.py`, `_validate_safe_url`)
+- **Output cache** — `from-url`/`from-html`/`batch` results are cached keyed by a sha256 of all render-affecting request fields (URL/HTML, pdf_options, injected CSS/JS, images, cookies, headers, viewport, wait/media, UA — **not** `timeout`/`no_cache`). Cache is checked **before** the concurrency semaphore, so hits are unthrottled. Response carries `X-Cache: HIT|MISS|BYPASS`. Per-request `no_cache: true` forces a fresh render. This is the primary defence against crawler-driven "N identical requests = N renders" load.
+- **Auth** — all `/api/pdf/*` require an API key (`X-API-Key` or `Authorization: Bearer`) when `PDF_API_KEYS`/`PDF_API_KEY` is set; disabled with a startup warning otherwise. `/api/health` and the UI stay open.
+- **SSRF + allowlist** — `_validate_safe_url` blocks non-http(s), cloud-metadata and private/loopback/link-local/reserved IPs, and (when `ALLOWED_HOSTS` is set) restricts to those hosts.
+- Tests in `tests/` (browser mocked): `pip install -r requirements-dev.txt && pytest`.
 
 ### Static files
 `app/static/index.html` — single-file web UI for testing all endpoints. Served at `/static/` and root `/` redirects to it.
