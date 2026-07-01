@@ -1,9 +1,17 @@
 # 📄 PDF Generation Service
 
 Сервіс для масової генерації PDF з довільних URL або HTML-контенту.  
-Підтримує ін'єкцію кастомних CSS, JS та зображень перед рендерингом.
+Підтримує ін'єкцію кастомних CSS, JS та зображень перед рендерингом,
+**кешування результатів**, **API-key автентифікацію** та **allowlist доменів**.
 
 **Stack:** FastAPI + Playwright (Chromium) + Docker
+
+**Можливості:**
+- Генерація PDF з URL, сирого HTML або пакетно (batch з polling)
+- Ін'єкція CSS/JS, заміна зображень, блокування трекерів, cookies/headers
+- **Кеш результатів** — однакові запити віддаються з диска без повторного рендеру
+- **Безпека** — API-ключ на `/api/pdf/*`, SSRF-захист, allowlist доменів
+- Пул браузерів з рециклінгом + ліміти конкурентності
 
 ---
 
@@ -45,9 +53,12 @@ curl http://localhost:8000/api/health
 {
   "status": "ok",
   "browsers": {"pool_size": 3, "active": 3, "pages_served": [12, 8, 15]},
-  "active_tasks": 0
+  "active_tasks": 0,
+  "cache": {"enabled": true, "entries": 42, "size_bytes": 8500000, "hits": 310, "misses": 44, "hit_rate": 0.876, "ttl_seconds": 86400, "max_bytes": 2000000000}
 }
 ```
+
+> `/api/health` та веб-UI відкриті. Усі `/api/pdf/*` вимагають API-ключ, якщо задано `PDF_API_KEYS` — див. [Безпека](#безпека-автентифікація--allowlist).
 
 ---
 
@@ -256,6 +267,15 @@ for result in status["results"]:
 | `MAX_PAGES_PER_BROWSER` | `200` | Сторінок до рециклінгу браузера (проти memory leak) |
 | `LOG_LEVEL` | `INFO` | Рівень логування |
 | `OUTPUT_DIR` | `/tmp/pdf-output` | Директорія для batch-файлів |
+| `CACHE_ENABLED` | `true` | Увімкнути файловий кеш PDF |
+| `CACHE_DIR` | `/var/cache/pdf` | Директорія кешу |
+| `CACHE_TTL_SECONDS` | `86400` | TTL запису кешу (`0` = без протермінування) |
+| `CACHE_MAX_BYTES` | `2000000000` | Ліміт розміру кешу (LRU-евікшн) |
+| `PDF_API_KEYS` / `PDF_API_KEY` | *(порожньо)* | API-ключі для `/api/pdf/*` (через кому); порожньо = auth вимкнено |
+| `ALLOWED_HOSTS` | *(порожньо)* | Allowlist доменів (через кому); префікс `.` = суфікс-матч; порожньо = будь-який публічний хост |
+| `CORS_ORIGINS` | `*` | CORS origins (через кому) |
+
+Приклад — див. [`.env.example`](.env.example).
 
 ### Рекомендації по ресурсах
 
@@ -287,6 +307,68 @@ for result in status["results"]:
 - **Raw JSON** — прямий запит до API з довільним JSON payload
 - Індикатор стану сервісу (healthcheck)
 - Preview JSON — перегляд згенерованого payload перед відправкою
+
+---
+
+## Кешування
+
+Згенеровані PDF кешуються на диску. Ключ — це sha256 усіх полів запиту, що
+впливають на результат (URL/HTML, `pdf_options`, ін'єкції CSS/JS, зображення,
+cookies, headers, viewport, wait/media, User-Agent) — **окрім** `timeout` та
+`no_cache`, які на байти не впливають.
+
+- Перевірка кешу відбувається **до** семафора конкурентності → хіти віддаються
+  миттєво й не обмежені `MAX_CONCURRENT_TASKS`.
+- Відповідь містить заголовок **`X-Cache: HIT | MISS | BYPASS`**.
+- Примусовий свіжий рендер — поле `"no_cache": true` у запиті.
+- Евікшн: за TTL (`CACHE_TTL_SECONDS`) і за розміром (`CACHE_MAX_BYTES`, LRU).
+
+Це головний захист від навантаження, коли краулери масово тягнуть один і той
+самий PDF-endpoint: `N` однакових запитів = `1` рендер + `N−1` читань з диска.
+
+```bash
+# перший раз -> MISS (рендериться), другий -> HIT (з кешу)
+curl -si -X POST http://localhost:8000/api/pdf/from-url \
+  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}' | grep -i x-cache
+```
+
+---
+
+## Безпека (автентифікація + allowlist)
+
+**API-ключ.** Усі `/api/pdf/*` вимагають ключ, коли задано `PDF_API_KEYS`
+(або `PDF_API_KEY`). Якщо не задано — auth **вимкнено** з попередженням у логах
+(тоді не виставляй сервіс у ненадійну мережу). `/api/health` і UI лишаються відкриті.
+
+```bash
+curl -X POST http://localhost:8000/api/pdf/from-url \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}' -o out.pdf
+# або: -H "Authorization: Bearer <key>"
+```
+
+**SSRF-захист** (завжди активний): дозволені лише `http(s)`, блокуються
+cloud-metadata та приватні/loopback/link-local/reserved IP.
+
+**Allowlist доменів** (опційно, `ALLOWED_HOSTS`): обмежує, які хости можна
+рендерити. Запис із префіксом `.` — суфікс-матч (`.bayonne.fr` → `bayonne.fr`
+і будь-який сабдомен). Порожньо = будь-який публічний хост.
+
+---
+
+## Тести
+
+Браузер замоканий, тож тести не потребують Chromium:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Покриття: кеш (miss/hit/TTL/евікшн), auth (401/Bearer), allowlist, SSRF,
+заголовки `X-Cache`, `no_cache` bypass, health.
 
 ---
 
